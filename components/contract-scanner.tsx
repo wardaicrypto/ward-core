@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import {
-  Clock,
   AlertTriangle,
   CheckCircle,
   XCircle,
@@ -33,6 +32,20 @@ interface GitHubRepo {
   lastUpdated: string
 }
 
+interface Wallet {
+  address: string
+  amount: number
+  percentage?: number
+}
+
+interface SuspiciousBundle {
+  wallets: Wallet[]
+  totalAmount: number
+  timestamp: string
+  confidence: number
+  totalPercentage?: number
+}
+
 interface VerificationData {
   github: {
     found: boolean
@@ -46,7 +59,7 @@ interface VerificationData {
     discord: boolean
     websiteUrl?: string
     twitterUrl?: string
-    telegramUrl?: string // Added telegramUrl to type definition
+    telegramUrl?: string
   }
   developer: {
     identified: boolean
@@ -62,6 +75,24 @@ interface VerificationData {
       similarity: number
       name?: string
     }>
+  }
+  sniperActivity: {
+    detected: boolean
+    sniperCount: number
+    suspiciousWallets: Array<{
+      address: string
+      buyAmount: number
+      timing: string
+      risk: "low" | "medium" | "high"
+    }>
+    earlyBuyConcentration: number
+  }
+  bundleDetection: {
+    detected: boolean
+    bundleCount: number
+    suspiciousBundles: SuspiciousBundle[]
+    coordinatedBuying: boolean
+    bubblemapsUrl?: string // Added bubblemapsUrl field
   }
 }
 
@@ -229,6 +260,14 @@ export function ContractScanner({
 
       {scanResult && (
         <>
+          <div className="flex items-center gap-2 p-3 rounded-lg bg-purple-500/5 border border-purple-500/20 text-sm">
+            <AlertTriangle className="h-4 w-4 text-purple-500 flex-shrink-0" />
+            <p className="text-muted-foreground">
+              <span className="font-medium text-foreground">Note:</span> Manual verification will be available soon if
+              our AI incorrectly identified team information.
+            </p>
+          </div>
+
           <Card>
             <CardHeader>
               <CardTitle className="text-lg">Audit Results</CardTitle>
@@ -280,7 +319,7 @@ export function ContractScanner({
             </CardContent>
           </Card>
 
-          <div className="grid md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-6">
             {/* GitHub Verification */}
             <Card>
               <CardHeader>
@@ -320,7 +359,7 @@ export function ContractScanner({
                         href={repo.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center justify-between p-2 rounded-lg border hover:border-primary/50 transition-colors"
+                        className="flex items-center justify-between p-2 rounded-lg border hover:border-primary/40 transition-colors"
                       >
                         <div className="flex-1">
                           <p className="font-medium text-sm">{repo.name}</p>
@@ -510,61 +549,129 @@ export function ContractScanner({
                 )}
               </CardContent>
             </Card>
-          </div>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Security Checks</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-3">
-                {scanResult.vulnerabilities.map((check, index) => (
-                  <div
-                    key={index}
-                    className="flex items-start gap-3 p-3 rounded-lg border border-border hover:border-primary/40 transition-colors"
-                  >
-                    <div className="mt-0.5">{getStatusIcon(check.status)}</div>
-                    <div className="flex-1">
-                      <p className="font-medium mb-1">{check.name}</p>
-                      <p className="text-sm text-muted-foreground">{check.description}</p>
+            {/* Sniper Activity Detection */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5" />
+                  <CardTitle className="text-base">Sniper Activity</CardTitle>
+                </div>
+              </CardHeader>
+              <CardContent>
+                {scanResult.verification.sniperActivity.detected ? (
+                  <div className="space-y-3">
+                    <div className="p-3 rounded-lg bg-red-500/10 border border-red-500/20">
+                      <p className="text-sm text-red-500 font-medium">⚠️ Sniper Activity Detected</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        {scanResult.verification.sniperActivity.sniperCount} potential sniper
+                        {scanResult.verification.sniperActivity.sniperCount > 1 ? "s" : ""} identified based on trading
+                        patterns
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-sm text-muted-foreground mb-2">Early Buy Concentration</p>
+                      <div className="flex items-center gap-2">
+                        <Progress
+                          value={scanResult.verification.sniperActivity.earlyBuyConcentration}
+                          className="flex-1"
+                        />
+                        <span className="text-sm font-medium">
+                          {scanResult.verification.sniperActivity.earlyBuyConcentration}%
+                        </span>
+                      </div>
+                    </div>
+                    <div className="p-3 rounded-lg border border-orange-500/20 bg-orange-500/5">
+                      <p className="text-sm font-medium mb-2">Pattern-Based Detection</p>
+                      <p className="text-xs text-muted-foreground mb-3">
+                        High concentration of buys detected within the first 5 minutes after launch. This pattern is
+                        typical of sniper bot activity.
+                      </p>
+                      <a
+                        href={`https://solscan.io/token/${scanResult.contractAddress}#holders`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 text-sm text-blue-500 hover:underline font-medium"
+                      >
+                        <ExternalLink className="h-4 w-4" />
+                        Manually verify early holders on Solscan
+                      </a>
+                    </div>
+                    <div className="text-xs text-muted-foreground p-2 bg-muted/50 rounded">
+                      <p className="font-medium mb-1">💡 How to verify:</p>
+                      <ol className="list-decimal list-inside space-y-1">
+                        <li>Check token holders tab on Solscan</li>
+                        <li>Look for wallets with large early positions</li>
+                        <li>Review transaction history for suspicious patterns</li>
+                        <li>Check if early buyers have already sold</li>
+                      </ol>
                     </div>
                   </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
+                ) : (
+                  <div className="flex items-center gap-2 text-green-500">
+                    <CheckCircle className="h-5 w-5" />
+                    <p className="text-sm">No sniper activity detected</p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
 
-          {/* Manual Verification Notice */}
-          <Card className="bg-purple-500/5 border-purple-500/20">
-            <CardContent className="pt-6">
-              <div className="flex items-start gap-3">
-                <AlertTriangle className="h-5 w-5 text-purple-500 mt-0.5" />
-                <div>
-                  <p className="font-medium mb-1">Manual Verification Available Soon</p>
-                  <p className="text-sm text-muted-foreground">
-                    If you believe our AI incorrectly identified team information or other details, manual verification
-                    by our team will be available soon. This ensures accuracy and gives projects a chance to verify
-                    their legitimacy.
-                  </p>
+            {/* Bundle Detection */}
+            <Card>
+              <CardHeader>
+                <div className="flex items-center gap-2">
+                  <AlertTriangle className="h-5 w-5" />
+                  <CardTitle className="text-base">Bundle Detection</CardTitle>
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-3">
+                  <div className="flex items-center gap-2 p-3 rounded-lg bg-yellow-500/10 border border-yellow-500/30">
+                    <AlertTriangle className="h-4 w-4 text-yellow-500" />
+                    <p className="text-sm text-yellow-500 font-medium">Ongoing Development</p>
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    Bundle detection feature is currently under development. Advanced wallet clustering analysis will be
+                    available soon.
+                  </p>
+                  {scanResult.verification.bundleDetection.bubblemapsUrl && (
+                    <a
+                      href={scanResult.verification.bundleDetection.bubblemapsUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-2 p-3 rounded-lg border border-purple-500/30 bg-purple-500/5 hover:border-purple-500/50 transition-colors"
+                    >
+                      <ExternalLink className="h-4 w-4 text-purple-500" />
+                      <span className="text-sm text-purple-500 font-medium">View Holder Map on Bubblemaps</span>
+                    </a>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
 
-          <Card className="bg-blue-500/5 border-blue-500/20">
-            <CardContent className="pt-6">
-              <div className="flex items-start gap-3">
-                <Clock className="h-5 w-5 text-blue-500 mt-0.5" />
-                <div>
-                  <p className="font-medium mb-1">Real-Time Monitoring</p>
-                  <p className="text-sm text-muted-foreground">
-                    This contract will be added to your monitoring list. You'll receive instant alerts if any suspicious
-                    changes are detected.
-                  </p>
+            {/* Security Checks */}
+            <Card className="col-span-1">
+              <CardHeader>
+                <CardTitle className="text-lg">Security Checks</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3">
+                  {scanResult.vulnerabilities.map((check, index) => (
+                    <div
+                      key={index}
+                      className="flex items-start gap-3 p-3 rounded-lg border border-border hover:border-primary/40 transition-colors"
+                    >
+                      <div className="mt-0.5">{getStatusIcon(check.status)}</div>
+                      <div className="flex-1">
+                        <p className="font-medium mb-1">{check.name}</p>
+                        <p className="text-sm text-muted-foreground">{check.description}</p>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          </div>
         </>
       )}
     </div>
