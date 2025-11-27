@@ -289,7 +289,7 @@ export default function DAOPage() {
         </section>
       </main>
 
-      <Footer />
+      <Footer hideBetaBanner={true} />
     </div>
   )
 }
