@@ -1,28 +1,20 @@
 "use client"
 
+import type React from "react"
+
 import { MarketGuardHeader } from "@/components/market-guard-header"
 import { Footer } from "@/components/footer"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { Clock, CheckCircle2, XCircle, AlertCircle, Plus } from "lucide-react"
+import { Clock, CheckCircle2, XCircle, Plus } from "lucide-react"
 import { useState, useEffect } from "react"
 import { useWallet, useConnection } from "@solana/wallet-adapter-react"
 import { WalletMultiButton } from "@solana/wallet-adapter-react-ui"
 import { PublicKey } from "@solana/web3.js"
 import { useToast } from "@/hooks/use-toast"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from "@/components/ui/dialog"
+import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Label } from "@/components/ui/label"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 // Replace this with your actual $WARD token mint address from Solana mainnet
 // Leave empty string for demo mode (allows voting without token verification)
@@ -116,12 +108,8 @@ export default function DAOPage() {
   const [votedProposals, setVotedProposals] = useState<Record<number, "agree" | "against">>({})
   const [votingInProgress, setVotingInProgress] = useState<number | null>(null)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
-  const [proposalTitle, setProposalTitle] = useState("")
-  const [proposalDescription, setProposalDescription] = useState("")
-  const [proposalCategory, setProposalCategory] = useState("")
-  const [activeProposals, setActiveProposals] = useState<Proposal[]>(mockProposals)
-  const [showSubmitDialog, setShowSubmitDialog] = useState(false)
-  const [proposalForm, setProposalForm] = useState({ title: "", category: "", description: "" })
+  const [newProposal, setNewProposal] = useState({ title: "", category: "", description: "" })
+  const [proposals, setProposals] = useState<Proposal[]>(mockProposals)
   const [userVotes, setUserVotes] = useState<Record<number, "for" | "against">>({})
   const [votingStatus, setVotingStatus] = useState<Record<number, "confirming" | null>>({})
 
@@ -186,7 +174,7 @@ export default function DAOPage() {
     setVotingStatus((prev) => ({ ...prev, [proposalId]: "confirming" }))
 
     try {
-      const proposal = activeProposals.find((p) => p.id === proposalId)
+      const proposal = proposals.find((p) => p.id === proposalId)
       const message = `Ward AI DAO Vote\n\nProposal ID: ${proposalId}\nProposal: ${proposal?.title}\n\nYour Vote: ${vote.toUpperCase()}\nVoting Power: ${userVotingPower} WARD\nWallet: ${publicKey.toBase58()}\n\nTimestamp: ${new Date().toISOString()}`
 
       console.log("[v0] Requesting wallet signature for vote...")
@@ -228,7 +216,8 @@ export default function DAOPage() {
     }
   }
 
-  const handleSubmitProposal = async () => {
+  const handleSubmitProposal = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
     if (!connected || !hasWardTokens || !signMessage || !publicKey) {
       toast({
         variant: "destructive",
@@ -238,7 +227,7 @@ export default function DAOPage() {
       return
     }
 
-    if (!proposalForm.title || !proposalForm.category || !proposalForm.description) {
+    if (!newProposal.title || !newProposal.category || !newProposal.description) {
       toast({
         variant: "destructive",
         title: "Missing Information",
@@ -258,7 +247,7 @@ export default function DAOPage() {
     }
 
     try {
-      const message = `Ward AI DAO - New Proposal Submission\n\nTitle: ${proposalForm.title}\nCategory: ${proposalForm.category}\nDescription: ${proposalForm.description}\n\nSubmitted by: ${publicKey.toBase58()}\nVoting Power: ${userVotingPower} WARD\nTimestamp: ${new Date().toISOString()}`
+      const message = `Ward AI DAO - New Proposal Submission\n\nTitle: ${newProposal.title}\nCategory: ${newProposal.category}\nDescription: ${newProposal.description}\n\nSubmitted by: ${publicKey.toBase58()}\nVoting Power: ${userVotingPower} WARD\nTimestamp: ${new Date().toISOString()}`
 
       const encodedMessage = new TextEncoder().encode(message)
       await signMessage(encodedMessage)
@@ -269,7 +258,7 @@ export default function DAOPage() {
       })
 
       // Reset form
-      setProposalForm({ title: "", category: "", description: "" })
+      setNewProposal({ title: "", category: "", description: "" })
       setIsDialogOpen(false)
     } catch (error: any) {
       if (error.message?.includes("User rejected")) {
@@ -310,14 +299,14 @@ export default function DAOPage() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-12">
           <Card className="border-border/50">
             <CardContent className="pt-6">
-              <div className="text-2xl font-bold">{activeProposals.length}</div>
+              <div className="text-2xl font-bold">{proposals.length}</div>
               <div className="text-sm text-muted-foreground">Active Proposals</div>
             </CardContent>
           </Card>
           <Card className="border-border/50">
             <CardContent className="pt-6">
               <div className="text-2xl font-bold">
-                {activeProposals.reduce((sum, p) => sum + p.totalVotes, 0).toLocaleString()}
+                {proposals.reduce((sum, p) => sum + p.totalVotes, 0).toLocaleString()}
               </div>
               <div className="text-sm text-muted-foreground">Total Votes Cast</div>
             </CardContent>
@@ -342,188 +331,162 @@ export default function DAOPage() {
           </Card>
         </div>
 
+        {/* Active Proposals Section */}
         <div className="flex justify-between items-center mb-8">
           <div>
             <h2 className="text-2xl font-bold">Active Proposals</h2>
-            <p className="text-sm text-muted-foreground mt-1">Vote on the future of Ward AI</p>
+            <p className="text-muted-foreground">Vote on the future of Ward AI</p>
           </div>
-          <Dialog open={showSubmitDialog} onOpenChange={setShowSubmitDialog}>
-            <DialogTrigger asChild>
-              <Button size="lg" disabled={!connected || !hasWardTokens || userVotingPower < 1000} className="gap-2">
-                <Plus className="w-4 h-4" />
-                Submit Proposal
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-[600px]">
-              <DialogHeader>
-                <DialogTitle>Submit New Proposal</DialogTitle>
-                <DialogDescription>
-                  Requires 1,000 WARD tokens minimum. Your wallet will prompt you to sign the proposal submission.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-6 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="proposal-title">Proposal Title</Label>
-                  <Input
-                    id="proposal-title"
-                    placeholder="e.g., Implement quarterly token buyback program"
-                    value={proposalForm.title}
-                    onChange={(e) => setProposalForm({ ...proposalForm, title: e.target.value })}
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="proposal-category">Category</Label>
-                  <Select
-                    value={proposalForm.category}
-                    onValueChange={(value) => setProposalForm({ ...proposalForm, category: value })}
-                  >
-                    <SelectTrigger id="proposal-category">
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="Token Unlock">Token Unlock</SelectItem>
-                      <SelectItem value="Token Burn">Token Burn</SelectItem>
-                      <SelectItem value="Marketing">Marketing</SelectItem>
-                      <SelectItem value="Staking">Staking</SelectItem>
-                      <SelectItem value="Security">Security</SelectItem>
-                      <SelectItem value="Protocol">Protocol Upgrade</SelectItem>
-                      <SelectItem value="Treasury">Treasury</SelectItem>
-                      <SelectItem value="Other">Other</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="proposal-description">Description</Label>
-                  <Textarea
-                    id="proposal-description"
-                    placeholder="Provide detailed explanation of your proposal, its benefits, and implementation plan..."
-                    rows={6}
-                    value={proposalForm.description}
-                    onChange={(e) => setProposalForm({ ...proposalForm, description: e.target.value })}
-                  />
-                </div>
-                <Button
-                  onClick={handleSubmitProposal}
-                  disabled={!proposalForm.title || !proposalForm.category || !proposalForm.description}
-                  className="w-full"
-                  size="lg"
-                >
-                  Submit for Community Vote
+          {connected && hasWardTokens && (
+            <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+              <DialogTrigger asChild>
+                <Button size="lg" className="gap-2">
+                  <Plus className="w-4 h-4" />
+                  Submit Proposal
                 </Button>
-              </div>
-            </DialogContent>
-          </Dialog>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Submit New Proposal</DialogTitle>
+                </DialogHeader>
+                <form onSubmit={handleSubmitProposal} className="space-y-4">
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Proposal Title</label>
+                    <Input
+                      value={newProposal.title}
+                      onChange={(e) => setNewProposal({ ...newProposal, title: e.target.value })}
+                      placeholder="Enter proposal title"
+                      required
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Category</label>
+                    <select
+                      value={newProposal.category}
+                      onChange={(e) => setNewProposal({ ...newProposal, category: e.target.value })}
+                      className="w-full p-2 border rounded-md bg-background"
+                      required
+                    >
+                      <option value="Token Unlock">Token Unlock</option>
+                      <option value="Token Burn">Token Burn</option>
+                      <option value="Marketing">Marketing</option>
+                      <option value="Development">Development</option>
+                      <option value="Staking">Staking</option>
+                      <option value="Partnership">Partnership</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Description</label>
+                    <textarea
+                      value={newProposal.description}
+                      onChange={(e) => setNewProposal({ ...newProposal, description: e.target.value })}
+                      placeholder="Describe your proposal in detail"
+                      className="w-full p-2 border rounded-md bg-background min-h-[100px]"
+                      required
+                    />
+                  </div>
+                  <DialogFooter>
+                    <Button type="submit">Submit Proposal</Button>
+                  </DialogFooter>
+                </form>
+              </DialogContent>
+            </Dialog>
+          )}
         </div>
 
-        {!connected || !hasWardTokens ? (
-          <Card className="border-dashed border-2 border-border/50">
-            <CardContent className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="w-16 h-16 rounded-full bg-muted flex items-center justify-center mb-4">
-                <AlertCircle className="w-8 h-8 text-muted-foreground" />
-              </div>
-              <h3 className="text-xl font-semibold mb-2">Connect Wallet to Participate</h3>
-              <p className="text-muted-foreground mb-6 max-w-md">
-                Hold WARD tokens to gain voting power and participate in governance decisions.
-              </p>
-              <WalletMultiButton />
-            </CardContent>
-          </Card>
-        ) : (
-          <div className="grid gap-6">
-            {activeProposals.map((proposal) => (
-              <Card key={proposal.id} className="border-border/50 hover:border-border transition-colors">
-                <CardHeader>
-                  <div className="flex items-start justify-between gap-4">
-                    <div className="space-y-2 flex-1">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        <Badge variant="secondary" className="font-medium">
-                          {proposal.category}
-                        </Badge>
-                        <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                          <Clock className="w-3.5 h-3.5" />
-                          <span>{proposal.endsIn}</span>
-                        </div>
+        {/* Proposals Grid */}
+        <div className="grid gap-6">
+          {proposals.map((proposal) => (
+            <Card key={proposal.id} className="border-border/50 hover:border-border transition-colors">
+              <CardHeader>
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-2 flex-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <Badge variant="secondary" className="font-medium">
+                        {proposal.category}
+                      </Badge>
+                      <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                        <Clock className="w-3.5 h-3.5" />
+                        <span>{proposal.endsIn}</span>
                       </div>
-                      <CardTitle className="text-xl">{proposal.title}</CardTitle>
-                      <CardDescription className="text-base">{proposal.description}</CardDescription>
                     </div>
+                    <CardTitle className="text-xl">{proposal.title}</CardTitle>
+                    <CardDescription className="text-base">{proposal.description}</CardDescription>
                   </div>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {/* Vote Results */}
-                  <div className="space-y-3">
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Agree</span>
-                      <span className="font-medium">
-                        {((proposal.votesFor / proposal.totalVotes) * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                    <div className="h-2 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-emerald-500 transition-all"
-                        style={{ width: `${(proposal.votesFor / proposal.totalVotes) * 100}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between text-sm">
-                      <span className="text-muted-foreground">Against</span>
-                      <span className="font-medium">
-                        {((proposal.votesAgainst / proposal.totalVotes) * 100).toFixed(1)}%
-                      </span>
-                    </div>
-                    <div className="h-2 bg-muted rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-red-500 transition-all"
-                        style={{ width: `${(proposal.votesAgainst / proposal.totalVotes) * 100}%` }}
-                      />
-                    </div>
+                </div>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Vote Results */}
+                <div className="space-y-3">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Agree</span>
+                    <span className="font-medium">{((proposal.votesFor / proposal.totalVotes) * 100).toFixed(1)}%</span>
                   </div>
+                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-emerald-500 transition-all"
+                      style={{ width: `${(proposal.votesFor / proposal.totalVotes) * 100}%` }}
+                    />
+                  </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-muted-foreground">Against</span>
+                    <span className="font-medium">
+                      {((proposal.votesAgainst / proposal.totalVotes) * 100).toFixed(1)}%
+                    </span>
+                  </div>
+                  <div className="h-2 bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-red-500 transition-all"
+                      style={{ width: `${(proposal.votesAgainst / proposal.totalVotes) * 100}%` }}
+                    />
+                  </div>
+                </div>
 
-                  <div className="text-sm text-muted-foreground pt-2 border-t border-border/50">
-                    {proposal.totalVotes.toLocaleString()} votes cast
-                  </div>
+                <div className="text-sm text-muted-foreground pt-2 border-t border-border/50">
+                  {proposal.totalVotes.toLocaleString()} votes cast
+                </div>
 
-                  {/* Vote Buttons */}
-                  <div className="flex gap-3 pt-2">
-                    <Button
-                      onClick={() => handleVote(proposal.id, "for")}
-                      disabled={votingStatus[proposal.id] === "confirming" || userVotes[proposal.id] === "for"}
-                      variant={userVotes[proposal.id] === "for" ? "default" : "outline"}
-                      className="flex-1"
-                    >
-                      {votingStatus[proposal.id] === "confirming" && userVotes[proposal.id] !== "against" ? (
-                        "Confirming..."
-                      ) : userVotes[proposal.id] === "for" ? (
-                        <>
-                          <CheckCircle2 className="w-4 h-4 mr-2" />
-                          Voted Agree
-                        </>
-                      ) : (
-                        "Vote Agree"
-                      )}
-                    </Button>
-                    <Button
-                      onClick={() => handleVote(proposal.id, "against")}
-                      disabled={votingStatus[proposal.id] === "confirming" || userVotes[proposal.id] === "against"}
-                      variant={userVotes[proposal.id] === "against" ? "destructive" : "outline"}
-                      className="flex-1"
-                    >
-                      {votingStatus[proposal.id] === "confirming" && userVotes[proposal.id] !== "for" ? (
-                        "Confirming..."
-                      ) : userVotes[proposal.id] === "against" ? (
-                        <>
-                          <XCircle className="w-4 h-4 mr-2" />
-                          Voted Against
-                        </>
-                      ) : (
-                        "Vote Against"
-                      )}
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            ))}
-          </div>
-        )}
+                {/* Vote Buttons */}
+                <div className="flex gap-3 pt-2">
+                  <Button
+                    onClick={() => handleVote(proposal.id, "for")}
+                    disabled={votingStatus[proposal.id] === "confirming" || userVotes[proposal.id] === "for"}
+                    variant={userVotes[proposal.id] === "for" ? "default" : "outline"}
+                    className="flex-1"
+                  >
+                    {votingStatus[proposal.id] === "confirming" && userVotes[proposal.id] !== "against" ? (
+                      "Confirming..."
+                    ) : userVotes[proposal.id] === "for" ? (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 mr-2" />
+                        Voted Agree
+                      </>
+                    ) : (
+                      "Vote Agree"
+                    )}
+                  </Button>
+                  <Button
+                    onClick={() => handleVote(proposal.id, "against")}
+                    disabled={votingStatus[proposal.id] === "confirming" || userVotes[proposal.id] === "against"}
+                    variant={userVotes[proposal.id] === "against" ? "destructive" : "outline"}
+                    className="flex-1"
+                  >
+                    {votingStatus[proposal.id] === "confirming" && userVotes[proposal.id] !== "for" ? (
+                      "Confirming..."
+                    ) : userVotes[proposal.id] === "against" ? (
+                      <>
+                        <XCircle className="w-4 h-4 mr-2" />
+                        Voted Against
+                      </>
+                    ) : (
+                      "Vote Against"
+                    )}
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
 
         <div className="mt-16 grid md:grid-cols-2 gap-6">
           <Card className="border-border/50">

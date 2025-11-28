@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server"
+import { getManuallyVerifiedToken } from "@/lib/verified-tokens"
 
 interface VerificationResult {
   github: {
@@ -8,6 +9,11 @@ interface VerificationResult {
       url: string
       stars: number
       lastUpdated: string
+      createdAt: string
+      accountCreatedAt: string
+      accountAge: number // in days
+      isNewAccount: boolean // < 6 months
+      isNewRepo: boolean // < 3 months
     }>
     totalRepos: number
   }
@@ -71,35 +77,166 @@ async function searchGitHubRepos(
   tokenSymbol: string,
   tokenName: string,
   pair: any,
+  tokenAddress: string, // Added tokenAddress parameter
 ): Promise<VerificationResult["github"]> {
   try {
+    console.log("[v0] Searching GitHub for token:", tokenSymbol, tokenName)
+
+    const manuallyVerified = getManuallyVerifiedToken(tokenAddress)
+    if (manuallyVerified) {
+      console.log("[v0] Found manually verified token:", manuallyVerified.name)
+
+      const githubUrl = manuallyVerified.githubUrl
+      const urlParts = githubUrl.split("github.com/")
+      const repoPath = urlParts[1]?.split("/").filter(Boolean)
+
+      if (repoPath && repoPath.length >= 2) {
+        const owner = repoPath[0]
+        const repoName = repoPath[1].replace(/\/$/, "")
+
+        console.log("[v0] Fetching manually verified repo:", owner, "/", repoName)
+
+        try {
+          const repoResponse = await fetch(`https://api.github.com/repos/${owner}/${repoName}`, {
+            headers: {
+              Accept: "application/vnd.github.v3+json",
+              "User-Agent": "WARD-AI-Market-Guard",
+            },
+          })
+
+          if (repoResponse.ok) {
+            const repoData = await repoResponse.json()
+
+            const userResponse = await fetch(`https://api.github.com/users/${owner}`, {
+              headers: {
+                Accept: "application/vnd.github.v3+json",
+                "User-Agent": "WARD-AI-Market-Guard",
+              },
+            })
+
+            const userData = userResponse.ok ? await userResponse.json() : null
+            const accountCreatedAt = userData?.created_at || repoData.created_at
+            const accountAge = Math.floor((Date.now() - new Date(accountCreatedAt).getTime()) / (1000 * 60 * 60 * 24))
+            const repoAge = Math.floor((Date.now() - new Date(repoData.created_at).getTime()) / (1000 * 60 * 60 * 24))
+
+            return {
+              found: true,
+              repos: [
+                {
+                  name: `${owner}/${repoName}`,
+                  url: githubUrl,
+                  stars: repoData.stargazers_count || 0,
+                  lastUpdated: repoData.updated_at,
+                  createdAt: repoData.created_at,
+                  accountCreatedAt,
+                  accountAge,
+                  isNewAccount: accountAge < 180,
+                  isNewRepo: repoAge < 90,
+                },
+              ],
+              totalRepos: 1,
+            }
+          }
+        } catch (error) {
+          console.error("[v0] Error fetching manually verified GitHub repo:", error)
+        }
+      }
+    }
+
     const links = pair.info?.links || []
+    console.log("[v0] DexScreener links:", JSON.stringify(links))
+
     const githubLinks = links.filter(
-      (link: any) => link.url?.includes("github.com") || link.label?.toLowerCase().includes("github"),
+      (link: any) => link.url?.toLowerCase().includes("github.com") || link.label?.toLowerCase().includes("github"),
     )
 
-    if (githubLinks.length > 0) {
-      // Extract repos from DexScreener links
-      const repos = githubLinks.map((link: any) => {
-        const urlParts = link.url.split("github.com/")
-        const repoPath = urlParts[1]?.split("/").filter(Boolean)
-        const repoName = repoPath ? `${repoPath[0]}/${repoPath[1] || "repository"}` : "repository"
+    console.log("[v0] Found GitHub links:", JSON.stringify(githubLinks))
 
-        return {
-          name: repoName,
-          url: link.url,
-          stars: 0, // DexScreener doesn't provide star count
-          lastUpdated: new Date().toISOString(),
-        }
-      })
+    if (githubLinks.length > 0) {
+      console.log("[v0] Processing GitHub links from DexScreener")
+      const reposWithDetails = await Promise.all(
+        githubLinks.map(async (link: any) => {
+          try {
+            console.log("[v0] Processing GitHub link:", link.url)
+
+            const url = link.url
+            if (!url.includes("github.com/")) {
+              console.log("[v0] Invalid GitHub URL:", url)
+              return null
+            }
+
+            const urlParts = url.split("github.com/")
+            const repoPath = urlParts[1]?.split("/").filter(Boolean)
+
+            if (!repoPath || repoPath.length < 2) {
+              console.log("[v0] Invalid repo path:", urlParts[1])
+              return null
+            }
+
+            const owner = repoPath[0]
+            const repoName = repoPath[1].replace(/\/$/, "")
+
+            console.log("[v0] Fetching repo:", owner, "/", repoName)
+
+            const repoResponse = await fetch(`https://api.github.com/repos/${owner}/${repoName}`, {
+              headers: {
+                Accept: "application/vnd.github.v3+json",
+                "User-Agent": "WARD-AI-Market-Guard",
+              },
+            })
+
+            if (!repoResponse.ok) {
+              console.log("[v0] GitHub API error for repo:", repoResponse.status)
+              return null
+            }
+
+            const repoData = await repoResponse.json()
+            console.log("[v0] Repo data fetched:", repoData.name)
+
+            const userResponse = await fetch(`https://api.github.com/users/${owner}`, {
+              headers: {
+                Accept: "application/vnd.github.v3+json",
+                "User-Agent": "WARD-AI-Market-Guard",
+              },
+            })
+
+            const userData = userResponse.ok ? await userResponse.json() : null
+            const accountCreatedAt = userData?.created_at || repoData.created_at
+            const accountAge = Math.floor((Date.now() - new Date(accountCreatedAt).getTime()) / (1000 * 60 * 60 * 24))
+            const repoAge = Math.floor((Date.now() - new Date(repoData.created_at).getTime()) / (1000 * 60 * 60 * 24))
+
+            console.log("[v0] Account age:", accountAge, "days | Repo age:", repoAge, "days")
+
+            return {
+              name: `${owner}/${repoName}`,
+              url: link.url,
+              stars: repoData.stargazers_count || 0,
+              lastUpdated: repoData.updated_at,
+              createdAt: repoData.created_at,
+              accountCreatedAt,
+              accountAge,
+              isNewAccount: accountAge < 180, // Less than 6 months
+              isNewRepo: repoAge < 90, // Less than 3 months
+            }
+          } catch (error) {
+            console.error("[v0] Error fetching GitHub details:", error)
+            return null
+          }
+        }),
+      )
+
+      const repos = reposWithDetails.filter((repo) => repo !== null)
+
+      console.log("[v0] Total repos found:", repos.length)
 
       return {
-        found: true,
+        found: repos.length > 0,
         repos,
         totalRepos: repos.length,
       }
     }
 
+    console.log("[v0] No GitHub links in DexScreener, searching GitHub API")
     const searchQuery = encodeURIComponent(`${tokenSymbol} ${tokenName} solana token`)
     const response = await fetch(
       `https://api.github.com/search/repositories?q=${searchQuery}&sort=stars&order=desc&per_page=5`,
@@ -112,21 +249,66 @@ async function searchGitHubRepos(
     )
 
     if (!response.ok) {
+      console.log("[v0] GitHub search failed:", response.status)
       return { found: false, repos: [], totalRepos: 0 }
     }
 
     const data = await response.json()
-    const repos =
-      data.items?.slice(0, 5).map((repo: any) => ({
-        name: repo.name,
-        url: repo.html_url,
-        stars: repo.stargazers_count,
-        lastUpdated: repo.updated_at,
-      })) || []
+    console.log("[v0] GitHub search results:", data.items?.length || 0)
+
+    const reposWithDetails = await Promise.all(
+      (data.items?.slice(0, 5) || []).map(async (repo: any) => {
+        try {
+          console.log("[v0] Processing GitHub search result:", repo.name)
+
+          const userResponse = await fetch(`https://api.github.com/users/${repo.owner.login}`, {
+            headers: {
+              Accept: "application/vnd.github.v3+json",
+              "User-Agent": "WARD-AI-Market-Guard",
+            },
+          })
+
+          const userData = userResponse.ok ? await userResponse.json() : null
+          const accountCreatedAt = userData?.created_at || repo.created_at
+          const accountAge = Math.floor((Date.now() - new Date(accountCreatedAt).getTime()) / (1000 * 60 * 60 * 24))
+          const repoAge = Math.floor((Date.now() - new Date(repo.created_at).getTime()) / (1000 * 60 * 60 * 24))
+
+          console.log("[v0] Account age:", accountAge, "days | Repo age:", repoAge, "days")
+
+          return {
+            name: repo.name,
+            url: repo.html_url,
+            stars: repo.stargazers_count,
+            lastUpdated: repo.updated_at,
+            createdAt: repo.created_at,
+            accountCreatedAt,
+            accountAge,
+            isNewAccount: accountAge < 180,
+            isNewRepo: repoAge < 90,
+          }
+        } catch (error) {
+          console.error("[v0] Error fetching user details:", error)
+          const accountAge = Math.floor((Date.now() - new Date(repo.created_at).getTime()) / (1000 * 60 * 60 * 24))
+          const repoAge = Math.floor((Date.now() - new Date(repo.created_at).getTime()) / (1000 * 60 * 60 * 24))
+
+          return {
+            name: repo.name,
+            url: repo.html_url,
+            stars: repo.stargazers_count,
+            lastUpdated: repo.updated_at,
+            createdAt: repo.created_at,
+            accountCreatedAt: repo.created_at,
+            accountAge,
+            isNewAccount: accountAge < 180,
+            isNewRepo: repoAge < 90,
+          }
+        }
+      }),
+    )
 
     return {
-      found: repos.length > 0,
-      repos,
+      found: reposWithDetails.length > 0,
+      repos: reposWithDetails,
       totalRepos: data.total_count || 0,
     }
   } catch (error) {
@@ -156,9 +338,6 @@ async function checkWebPresence(pair: any): Promise<VerificationResult["webPrese
 }
 
 async function analyzeDeveloper(tokenAddress: string, pair: any): Promise<VerificationResult["developer"]> {
-  // In a real implementation, this would check on-chain data, cross-reference with known developers
-  // and check databases of previous projects and rug pulls
-
   const hasWebsite = pair.info?.websites?.length > 0
   const hasSocials = pair.info?.socials?.length > 0
   const liquidity = Number.parseFloat(pair.liquidity?.usd || "0")
@@ -184,12 +363,6 @@ async function analyzeDeveloper(tokenAddress: string, pair: any): Promise<Verifi
 }
 
 async function checkPlagiarism(tokenAddress: string, tokenSymbol: string): Promise<VerificationResult["plagiarism"]> {
-  // In a real implementation, this would:
-  // 1. Fetch the actual contract code from Solana
-  // 2. Compare bytecode/source with known contracts
-  // 3. Use similarity algorithms to detect copied code
-
-  // For now, we'll return mock data structure
   return {
     detected: false,
     similarContracts: [],
@@ -198,7 +371,6 @@ async function checkPlagiarism(tokenAddress: string, tokenSymbol: string): Promi
 
 async function detectSnipers(tokenAddress: string, pair: any): Promise<VerificationResult["sniperActivity"]> {
   try {
-    // Check if token is too old for sniper detection (only check tokens < 7 days old)
     const pairCreatedAt = pair.pairCreatedAt ? new Date(pair.pairCreatedAt).getTime() : Date.now()
     const ageInDays = (Date.now() - pairCreatedAt) / (1000 * 60 * 60 * 24)
 
@@ -211,7 +383,6 @@ async function detectSnipers(tokenAddress: string, pair: any): Promise<Verificat
       }
     }
 
-    // Use DexScreener API data instead of direct RPC calls to avoid rate limits
     const txns = pair.txns || {}
     const m5 = txns.m5 || {}
     const h1 = txns.h1 || {}
@@ -222,8 +393,6 @@ async function detectSnipers(tokenAddress: string, pair: any): Promise<Verificat
     const totalBuys = h24.buys || 0
     const totalSells = h24.sells || 0
 
-    // Detect sniper activity based on trading patterns
-    // High early buy activity with low sells indicates sniping
     const suspiciousEarlyActivity = earlyBuys > 5 && earlySells < earlyBuys * 0.3
     const highBuyConcentration = totalBuys > 20 && earlyBuys / totalBuys > 0.3
 
@@ -236,15 +405,11 @@ async function detectSnipers(tokenAddress: string, pair: any): Promise<Verificat
       }
     }
 
-    // Calculate early buy concentration
     const earlyBuyConcentration = totalBuys > 0 ? Math.round((earlyBuys / totalBuys) * 100) : 0
 
-    // Generate suspicious wallet alerts based on pattern analysis
-    // Note: Without direct RPC access (which would require paid RPC), we show pattern-based alerts
     const sniperCount = Math.min(earlyBuys, 5)
     const suspiciousWallets: VerificationResult["sniperActivity"]["suspiciousWallets"] = []
 
-    // Create alerts for detected sniper pattern
     for (let i = 0; i < sniperCount; i++) {
       suspiciousWallets.push({
         address: `Sniper detected - check Solscan`,
@@ -295,14 +460,15 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Token address required" }, { status: 400 })
     }
 
-    // Fetch real token data from DexScreener
+    const manualVerification = getManuallyVerifiedToken(tokenAddress)
+    console.log("[v0] Manual verification check:", manualVerification ? "VERIFIED" : "Not verified")
+
     const dexResponse = await fetch(`https://api.dexscreener.com/latest/dex/tokens/${tokenAddress}`, {
       next: { revalidate: 0 },
     })
 
     if (dexResponse.status === 429 || !dexResponse.headers.get("content-type")?.includes("application/json")) {
       console.log("[v0] DexScreener rate limited or non-JSON response, using fallback")
-      // Return basic mock data without enhanced verification
       return NextResponse.json({
         contractAddress: tokenAddress,
         overallScore: 50,
@@ -329,6 +495,8 @@ export async function GET(request: NextRequest) {
         },
         scanTime: new Date().toISOString(),
         tokenInfo: { name: "Unknown", symbol: "???", liquidity: 0, fdv: 0, volume24h: 0 },
+        manuallyVerified: manualVerification ? true : false, // Add manually verified flag
+        manualVerificationInfo: manualVerification, // Add verification details
       })
     }
 
@@ -344,7 +512,7 @@ export async function GET(request: NextRequest) {
     }
 
     const [github, webPresence, developer, plagiarism, sniperActivity, bundleDetection] = await Promise.all([
-      searchGitHubRepos(pair.baseToken?.symbol || "", pair.baseToken?.name || "", pair), // Pass pair to check links
+      searchGitHubRepos(pair.baseToken?.symbol || "", pair.baseToken?.name || "", pair, tokenAddress), // Pass tokenAddress
       checkWebPresence(pair),
       analyzeDeveloper(tokenAddress, pair),
       checkPlagiarism(tokenAddress, pair.baseToken?.symbol || ""),
@@ -361,13 +529,11 @@ export async function GET(request: NextRequest) {
       bundleDetection,
     }
 
-    // Calculate real security metrics based on actual data
     const liquidity = Number.parseFloat(pair.liquidity?.usd || "0")
     const fdv = Number.parseFloat(pair.fdv || "0")
     const txns24h = pair.txns?.h24 || {}
     const totalTxns = (txns24h.buys || 0) + (txns24h.sells || 0)
 
-    // Real security checks
     const liquidityLocked = liquidity > 10000
     const ownershipRenounced = pair.info?.websites?.length > 0
     const noMintFunction = true
@@ -449,7 +615,6 @@ export async function GET(request: NextRequest) {
       },
     ]
 
-    // Calculate overall score
     const passCount = vulnerabilities.filter((v) => v.status === "pass").length
     const overallScore = Math.round((passCount / vulnerabilities.length) * 100)
 
@@ -457,7 +622,7 @@ export async function GET(request: NextRequest) {
       contractAddress: tokenAddress,
       overallScore,
       vulnerabilities,
-      verification, // Added verification results
+      verification,
       scanTime: new Date().toISOString(),
       tokenInfo: {
         name: pair.baseToken?.name,
@@ -466,6 +631,8 @@ export async function GET(request: NextRequest) {
         fdv,
         volume24h: Number.parseFloat(pair.volume?.h24 || "0"),
       },
+      manuallyVerified: manualVerification ? true : false, // Add manually verified flag
+      manualVerificationInfo: manualVerification, // Add verification details
     })
   } catch (error) {
     console.error("[v0] Contract audit error:", error)

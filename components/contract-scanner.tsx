@@ -30,6 +30,11 @@ interface GitHubRepo {
   url: string
   stars: number
   lastUpdated: string
+  createdAt: string
+  accountCreatedAt: string
+  accountAge: number
+  isNewAccount: boolean
+  isNewRepo: boolean
 }
 
 interface Wallet {
@@ -102,6 +107,15 @@ interface ScanResult {
   vulnerabilities: VulnerabilityCheck[]
   verification: VerificationData
   scanTime: Date
+  manuallyVerified?: boolean
+  manualVerificationInfo?: {
+    address: string
+    name: string
+    symbol: string
+    githubUrl: string
+    verifiedDate: string
+    notes?: string
+  }
 }
 
 interface ContractScannerProps {
@@ -158,6 +172,8 @@ export function ContractScanner({
         vulnerabilities: data.vulnerabilities,
         verification: data.verification,
         scanTime: new Date(data.scanTime),
+        manuallyVerified: data.manuallyVerified,
+        manualVerificationInfo: data.manualVerificationInfo,
       })
     } catch (error) {
       console.error("[v0] Scan error:", error)
@@ -274,7 +290,34 @@ export function ContractScanner({
               <CardDescription className="font-mono text-xs break-all">{scanResult.contractAddress}</CardDescription>
             </CardHeader>
             <CardContent>
-              {isWardAIToken && (
+              {scanResult.manuallyVerified && scanResult.manualVerificationInfo && (
+                <div className="mb-6 p-4 rounded-lg bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20">
+                  <div className="flex items-start gap-3">
+                    <CheckCircle className="h-6 w-6 text-green-500 mt-0.5" />
+                    <div className="flex-1">
+                      <div className="flex items-center gap-2 mb-2">
+                        <p className="font-bold text-lg">Manually Verified Token</p>
+                        <Badge className="bg-green-500 text-white">Verified by Ward AI</Badge>
+                      </div>
+                      <p className="text-sm text-muted-foreground mb-3">
+                        {scanResult.manualVerificationInfo.notes ||
+                          "This token has been manually verified by the Ward AI team."}
+                      </p>
+                      <a
+                        href={scanResult.manualVerificationInfo.githubUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 text-sm text-blue-500 hover:underline font-medium"
+                      >
+                        <Github className="h-4 w-4" />
+                        View GitHub Repository
+                        <ExternalLink className="h-3 w-3" />
+                      </a>
+                    </div>
+                  </div>
+                </div>
+              )}
+              {isWardAIToken && !scanResult.manuallyVerified && (
                 <div className="mb-6 p-4 rounded-lg bg-gradient-to-r from-blue-500/10 to-purple-500/10 border border-blue-500/20">
                   <div className="flex items-start gap-3">
                     <CheckCircle className="h-6 w-6 text-green-500 mt-0.5" />
@@ -359,7 +402,7 @@ export function ContractScanner({
                         href={repo.url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="flex items-center justify-between p-2 rounded-lg border hover:border-primary/40 transition-colors"
+                        className="flex items-center justify-between p-3 rounded-lg border hover:border-primary/40 transition-colors gap-2"
                       >
                         <div className="flex-1">
                           <p className="font-medium text-sm">{repo.name}</p>
