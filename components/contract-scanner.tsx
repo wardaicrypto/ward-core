@@ -73,6 +73,7 @@ interface VerificationData {
     previousProjects: number
     rugPullHistory: boolean
     creationPlatform?: string
+    platformUrl?: string
     creatorAddress?: string
   }
   plagiarism: {
@@ -524,7 +525,19 @@ export function ContractScanner({
                     {scanResult.verification.developer.creationPlatform && (
                       <div>
                         <p className="text-sm text-muted-foreground mb-1">Created On</p>
-                        <p className="text-sm font-medium">{scanResult.verification.developer.creationPlatform}</p>
+                        {scanResult.verification.developer.platformUrl ? (
+                          <a
+                            href={scanResult.verification.developer.platformUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-sm font-medium text-blue-500 hover:text-blue-400 flex items-center gap-1"
+                          >
+                            {scanResult.verification.developer.creationPlatform}
+                            <ExternalLink className="h-3 w-3" />
+                          </a>
+                        ) : (
+                          <p className="text-sm font-medium">{scanResult.verification.developer.creationPlatform}</p>
+                        )}
                       </div>
                     )}
                     {scanResult.verification.developer.creatorAddress && (
@@ -534,7 +547,7 @@ export function ContractScanner({
                           href={`https://solscan.io/account/${scanResult.verification.developer.creatorAddress}`}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-sm font-mono text-blue-500 hover:text-blue-400 transition-colors flex items-center gap-1"
+                          className="text-sm font-mono text-blue-500 hover:text-blue-400 flex items-center gap-1"
                         >
                           {scanResult.verification.developer.creatorAddress.slice(0, 4)}...
                           {scanResult.verification.developer.creatorAddress.slice(-4)}

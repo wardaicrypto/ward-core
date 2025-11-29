@@ -32,8 +32,9 @@ interface VerificationResult {
     reputation: "unknown" | "known" | "verified" | "suspicious"
     previousProjects: number
     rugPullHistory: boolean
-    creationPlatform: string
-    creatorAddress: string | null
+    creatorAddress?: string
+    creationPlatform?: string
+    platformUrl?: string
   }
   plagiarism: {
     detected: boolean
@@ -361,136 +362,72 @@ async function analyzeDeveloper(tokenAddress: string, pair: any): Promise<Verifi
     reputation = "suspicious"
   }
 
-  let creationPlatform = "Unknown"
-  const dexId = pair.dexId?.toLowerCase() || ""
-  const pairAddress = pair.pairAddress || ""
+  let creatorAddress: string | undefined
+  let creationPlatform: string | undefined
+  let platformUrl: string | undefined
 
-  // Check common Solana token creation platforms
-  if (pairAddress.includes("pump") || tokenAddress.includes("pump")) {
-    creationPlatform = "pump.fun"
-  } else if (dexId.includes("raydium")) {
-    creationPlatform = "Raydium"
-  } else if (dexId.includes("meteora")) {
-    creationPlatform = "Meteora"
-  } else if (dexId.includes("orca")) {
-    creationPlatform = "Orca"
-  } else if (dexId.includes("moonshot")) {
-    creationPlatform = "Moonshot"
-  } else if (dexId) {
-    creationPlatform = dexId.charAt(0).toUpperCase() + dexId.slice(1)
-  }
+  try {
+    console.log("[v0] Fetching token creator from Solscan API...")
 
-  let creatorAddress = pair.info?.deployer || null
-  console.log("[v0] DexScreener deployer:", creatorAddress)
+    // Fetch token info from Solscan to get the creator/mint authority
+    const solscanResponse = await fetch(`https://api.solscan.io/v2/account/token?address=${tokenAddress}`, {
+      headers: {
+        Accept: "application/json",
+      },
+    })
 
-  // If no deployer info from DexScreener, try multiple sources
-  if (!creatorAddress) {
-    try {
-      const rpcUrl = "https://api.mainnet-beta.solana.com"
+    if (solscanResponse.ok) {
+      const solscanData = await solscanResponse.json()
+      console.log("[v0] Solscan token data fetched successfully")
 
-      // Try to get mint authority first
-      const mintResponse = await fetch(rpcUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "getAccountInfo",
-          params: [
-            tokenAddress,
-            {
-              encoding: "jsonParsed",
-            },
-          ],
-        }),
-      })
-
-      const mintData = await mintResponse.json()
-      console.log("[v0] Mint data response:", JSON.stringify(mintData.result?.value?.data?.parsed?.info))
-
-      if (mintData.result?.value?.data?.parsed?.info?.mintAuthority) {
-        creatorAddress = mintData.result.value.data.parsed.info.mintAuthority
+      // The creator is typically the mint authority or update authority
+      if (solscanData.data?.mintAuthority) {
+        creatorAddress = solscanData.data.mintAuthority
         console.log("[v0] Found mint authority:", creatorAddress)
+      } else if (solscanData.data?.updateAuthority) {
+        creatorAddress = solscanData.data.updateAuthority
+        console.log("[v0] Found update authority:", creatorAddress)
       }
-
-      // If no mint authority (burned), try to fetch the first transaction to find the creator
-      if (!creatorAddress || creatorAddress === "11111111111111111111111111111111") {
-        console.log("[v0] Mint authority burned or null, fetching signatures to find creator...")
-
-        const signaturesResponse = await fetch(rpcUrl, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            jsonrpc: "2.0",
-            id: 1,
-            method: "getSignaturesForAddress",
-            params: [
-              tokenAddress,
-              {
-                limit: 1000, // Get more signatures to find the creation tx
-              },
-            ],
-          }),
-        })
-
-        const signaturesData = await signaturesResponse.json()
-        const signatures = signaturesData.result || []
-
-        if (signatures.length > 0) {
-          // Get the earliest signature (last in the array)
-          const creationSignature = signatures[signatures.length - 1]?.signature
-          console.log("[v0] Found creation signature:", creationSignature)
-
-          if (creationSignature) {
-            // Get the transaction details to find the creator
-            const txResponse = await fetch(rpcUrl, {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                jsonrpc: "2.0",
-                id: 1,
-                method: "getTransaction",
-                params: [
-                  creationSignature,
-                  {
-                    encoding: "jsonParsed",
-                    maxSupportedTransactionVersion: 0,
-                  },
-                ],
-              }),
-            })
-
-            const txData = await txResponse.json()
-            const feePayer = txData.result?.transaction?.message?.accountKeys?.[0]?.pubkey
-
-            if (feePayer) {
-              creatorAddress = feePayer
-              console.log("[v0] Found creator from first transaction:", creatorAddress)
-            }
-          }
-        }
-      }
-
-      // Last resort: use pair owner or txns.m5.maker from DexScreener
-      if (!creatorAddress) {
-        creatorAddress = pair.info?.owner || pair.txns?.m5?.maker || null
-        console.log("[v0] Using fallback address:", creatorAddress)
-      }
-    } catch (error) {
-      console.error("[v0] Error fetching creator from Solana:", error)
-      creatorAddress = pair.info?.owner || pair.txns?.m5?.maker || null
+    } else {
+      console.log("[v0] Solscan API request failed:", solscanResponse.status)
     }
+  } catch (error) {
+    console.error("[v0] Error fetching creator from Solscan:", error)
   }
 
-  console.log("[v0] Final creator address:", creatorAddress)
+  // If we still don't have a creator, try alternative method using DexScreener pair creator
+  if (!creatorAddress && pair.info?.creator) {
+    creatorAddress = pair.info.creator
+    console.log("[v0] Using creator from DexScreener pair info:", creatorAddress)
+  }
+
+  // Determine creation platform based on token address pattern and DEX info
+  if (tokenAddress.endsWith("pump")) {
+    creationPlatform = "pump.fun"
+    platformUrl = `https://pump.fun/${tokenAddress}`
+  } else if (pair.dexId?.toLowerCase().includes("meteora")) {
+    creationPlatform = "Meteora"
+    platformUrl = `https://app.meteora.ag/pools/${pair.pairAddress}`
+  } else if (pair.dexId?.toLowerCase().includes("raydium")) {
+    creationPlatform = "Raydium"
+    platformUrl = `https://raydium.io/swap/?inputCurrency=sol&outputCurrency=${tokenAddress}`
+  } else if (pair.dexId?.toLowerCase().includes("orca")) {
+    creationPlatform = "Orca"
+    platformUrl = `https://www.orca.so/`
+  } else {
+    creationPlatform = "Direct Deploy"
+  }
+
+  console.log("[v0] Final creator info - Platform:", creationPlatform, "Creator:", creatorAddress)
 
   return {
     identified: hasWebsite || hasSocials,
     reputation,
     previousProjects: 0,
     rugPullHistory: false,
-    creationPlatform,
     creatorAddress,
+    creationPlatform,
+    platformUrl,
   }
 }
 
@@ -614,14 +551,7 @@ export async function GET(request: NextRequest) {
         verification: {
           github: { found: false, repos: [], totalRepos: 0 },
           webPresence: { website: false, twitter: false, telegram: false, discord: false },
-          developer: {
-            identified: false,
-            reputation: "unknown" as const,
-            previousProjects: 0,
-            rugPullHistory: false,
-            creationPlatform: "Unknown",
-            creatorAddress: null,
-          },
+          developer: { identified: false, reputation: "unknown" as const, previousProjects: 0, rugPullHistory: false },
           plagiarism: { detected: false, similarContracts: [] },
           sniperActivity: { detected: false, sniperCount: 0, suspiciousWallets: [], earlyBuyConcentration: 0 },
           bundleDetection: {
