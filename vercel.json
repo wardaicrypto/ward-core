@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/auto-tweet/webhook",
+      "schedule": "*/5 * * * *"
+    }
+  ]
+}
