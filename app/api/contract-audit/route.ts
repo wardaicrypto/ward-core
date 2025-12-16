@@ -414,40 +414,61 @@ async function detectBundles(tokenAddress: string, pair: any): Promise<Verificat
     )?.url || `https://bubblemaps.io/sol/token/${tokenAddress}`
 
   try {
-    let response
-    try {
-      response = await fetch(`https://api.mainnet-beta.solana.com`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          jsonrpc: "2.0",
-          id: 1,
-          method: "getSignaturesForAddress",
-          params: [
-            tokenAddress,
-            {
-              limit: 2,
-            },
-          ],
-        }),
-      })
-    } catch (fetchError) {
-      console.log("[v0] Fetch error on getSignaturesForAddress, returning clean status")
-      return {
-        detected: false,
-        bundleCount: 0,
-        suspiciousBundles: [],
-        coordinatedBuying: false,
-        bubblemapsUrl,
+    const poolAddress = pair.pairAddress || pair.address
+
+    console.log("[v0] Checking bundle detection for pool:", poolAddress)
+
+    const query = `
+      query BundleDetection($pool: String!, $time_ago: DateTime!) {
+        Solana(dataset: realtime) {
+          DEXTradeByTokens(
+            where: {
+              Trade: {
+                Market: { MarketAddress: { is: $pool } }
+              }
+              Transaction: { Result: { Success: true } }
+              Block: { Time: { since: $time_ago } }
+            }
+            limit: { count: 100 }
+            orderBy: { ascending: Block_Time }
+          ) {
+            Block {
+              Slot
+              Time
+            }
+            Transaction {
+              Signature
+              Signer
+            }
+            Trade {
+              Side {
+                Type
+              }
+            }
+          }
+        }
       }
-    }
+    `
+
+    const twentyFourHoursAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+
+    const response = await fetch("https://streaming.bitquery.io/graphql", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.BITQUERY_API_KEY}`,
+      },
+      body: JSON.stringify({
+        query,
+        variables: {
+          pool: poolAddress,
+          time_ago: twentyFourHoursAgo,
+        },
+      }),
+    })
 
     if (!response.ok) {
-      if (response.status === 429) {
-        console.log("[v0] Rate limited by Solana RPC, returning clean bundle status")
-      } else {
-        console.log(`[v0] Solana RPC error: ${response.status}`)
-      }
+      console.log("[v0] Bitquery error, returning clean status")
       return {
         detected: false,
         bundleCount: 0,
@@ -458,9 +479,10 @@ async function detectBundles(tokenAddress: string, pair: any): Promise<Verificat
     }
 
     const data = await response.json()
+    const trades = data?.data?.Solana?.DEXTradeByTokens || []
 
-    if (data.error && data.error.code === 429) {
-      console.log("[v0] Rate limited in response body, returning fallback bundle detection")
+    if (trades.length === 0) {
+      console.log("[v0] No trades found")
       return {
         detected: false,
         bundleCount: 0,
@@ -470,124 +492,56 @@ async function detectBundles(tokenAddress: string, pair: any): Promise<Verificat
       }
     }
 
-    if (!data.result || data.result.length === 0) {
-      return {
-        detected: false,
-        bundleCount: 0,
-        suspiciousBundles: [],
-        coordinatedBuying: false,
-        bubblemapsUrl,
+    const earlyTrades = trades.slice(0, 20)
+    const buyTrades = earlyTrades.filter((t: any) => t.Trade.Side.Type === "buy")
+
+    console.log("[v0] Analyzing", earlyTrades.length, "early trades,", buyTrades.length, "buys")
+
+    const tradesBySlot = new Map<number, any[]>()
+    buyTrades.forEach((trade: any) => {
+      const slot = trade.Block.Slot
+      if (!tradesBySlot.has(slot)) {
+        tradesBySlot.set(slot, [])
+      }
+      tradesBySlot.get(slot)!.push(trade)
+    })
+
+    const suspiciousBundles: string[] = []
+    let bundleCount = 0
+
+    tradesBySlot.forEach((slotTrades, slot) => {
+      const uniqueBuyers = new Set(slotTrades.map((t: any) => t.Transaction.Signer))
+
+      if (uniqueBuyers.size >= 3) {
+        bundleCount++
+        suspiciousBundles.push(`Slot ${slot}: ${uniqueBuyers.size} wallets bought together`)
+        console.log("[v0] Bundle detected at slot", slot, "with", uniqueBuyers.size, "wallets")
+      }
+    })
+
+    let rapidBuys = 0
+    for (let i = 0; i < Math.min(10, buyTrades.length - 1); i++) {
+      const currentSigner = buyTrades[i].Transaction.Signer
+      const nextSigner = buyTrades[i + 1].Transaction.Signer
+
+      if (currentSigner !== nextSigner) {
+        rapidBuys++
       }
     }
 
-    const signatures = data.result.slice(0, 1).map((sig: any) => sig.signature)
+    const coordinatedBuying = rapidBuys >= 5 || bundleCount > 0
 
-    const transactions = []
-    for (const sig of signatures) {
-      try {
-        await delay(1200)
-
-        let txResponse
-        try {
-          txResponse = await fetch(`https://api.mainnet-beta.solana.com`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              jsonrpc: "2.0",
-              id: 1,
-              method: "getTransaction",
-              params: [
-                sig,
-                {
-                  encoding: "jsonParsed",
-                  maxSupportedTransactionVersion: 0,
-                },
-              ],
-            }),
-          })
-        } catch (fetchError) {
-          console.log("[v0] Fetch error on getTransaction, stopping further requests")
-          break
-        }
-
-        if (!txResponse.ok) {
-          if (txResponse.status === 429) {
-            console.log("[v0] Rate limited on transaction fetch, stopping further requests")
-            break
-          }
-          continue
-        }
-
-        const txData = await txResponse.json()
-
-        if (txData.error && txData.error.code === 429) {
-          console.log("[v0] Rate limited in transaction response, stopping")
-          break
-        }
-
-        if (txData.result) {
-          transactions.push(txData)
-        }
-      } catch (error) {
-        console.error("[v0] Error fetching transaction:", error)
-        continue
-      }
+    if (coordinatedBuying) {
+      console.log("[v0] Coordinated buying detected:", rapidBuys, "rapid sequential buys from different wallets")
     }
 
-    let jitoBundleCount = 0
-    const suspiciousBundles: Array<{
-      wallets: Array<{ address: string; amount: number; percentage: number }>
-      totalAmount: number
-      totalPercentage: number
-      timestamp: string
-      confidence: number
-    }> = []
-
-    for (const txData of transactions) {
-      if (!txData.result) continue
-
-      const tx = txData.result.transaction
-      if (!tx || !tx.message) continue
-
-      const instructions = tx.message.instructions || []
-
-      for (const ix of instructions) {
-        if (ix.program === "system" && ix.parsed?.type === "transfer") {
-          const destination = ix.parsed.info?.destination
-
-          if (destination === JITO_FEE_VAULT_ID) {
-            jitoBundleCount++
-
-            const wallets = tx.message.accountKeys
-              .filter((key: any) => key.signer)
-              .map((key: any) => ({
-                address: key.pubkey,
-                amount: 0,
-                percentage: 0,
-              }))
-
-            if (wallets.length > 0) {
-              suspiciousBundles.push({
-                wallets,
-                totalAmount: 0,
-                totalPercentage: 0,
-                timestamp: new Date(txData.result.blockTime * 1000).toISOString(),
-                confidence: 95,
-              })
-            }
-            break
-          }
-        }
-      }
-    }
-
-    const detected = jitoBundleCount > 0
+    const detected = bundleCount > 0 || coordinatedBuying
 
     return {
       detected,
-      bundleCount: jitoBundleCount,
+      bundleCount,
       suspiciousBundles,
-      coordinatedBuying: jitoBundleCount > 1,
+      coordinatedBuying,
       bubblemapsUrl,
     }
   } catch (error) {
@@ -698,6 +652,13 @@ export async function GET(request: NextRequest) {
         description: sniperActivity.detected
           ? `Detected ${sniperActivity.sniperCount} potential snipers | ${sniperActivity.earlyBuyConcentration}% early buy concentration`
           : "No suspicious sniper activity detected",
+      },
+      {
+        name: "Bundle Detection",
+        status: bundleDetection.detected ? "fail" : "pass",
+        description: bundleDetection.detected
+          ? `⚠️ BUNDLED! Detected ${bundleDetection.bundleCount} Jito bundle(s) | Coordinated buying: ${bundleDetection.coordinatedBuying ? "Yes" : "No"}`
+          : "No bundle activity detected",
       },
       {
         name: "GitHub Repository",

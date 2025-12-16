@@ -280,8 +280,11 @@ export function AutoTweetDashboard() {
                     className="bg-yellow-500/10 border border-yellow-500/20 rounded-lg p-3 flex items-center justify-between"
                   >
                     <div className="flex items-center gap-2">
-                      <span className="text-yellow-500 font-bold text-lg">#{token.rank}</span>
                       <span className="font-mono font-semibold">${token.symbol}</span>
+                      <span className="text-xs text-gray-500">
+                        {token.priceChange24h > 0 ? "+" : ""}
+                        {token.priceChange24h.toFixed(2)}%
+                      </span>
                     </div>
                     <Button
                       size="sm"
@@ -332,9 +335,7 @@ export function AutoTweetDashboard() {
                 <div className="flex items-start justify-between gap-4">
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-2">
-                      <span className="font-mono text-yellow-500 font-semibold">
-                        #{tweet.token.rank} ${tweet.token.symbol}
-                      </span>
+                      <span className="font-mono text-yellow-500 font-semibold">${tweet.token.symbol}</span>
                       {tweet.posted ? (
                         <span className="px-2 py-0.5 bg-green-500/20 text-green-400 text-xs rounded">Posted</span>
                       ) : (

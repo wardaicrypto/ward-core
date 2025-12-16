@@ -42,14 +42,17 @@ export async function POST(request: Request) {
     const analysis = await auditResponse.json()
     console.log(`[v0] Analysis complete - Score: ${analysis.overallScore}`)
 
+    const bundleDetected = analysis.verification?.bundleDetection?.detected || false
+    const sniperDetected = analysis.verification?.sniperActivity?.detected || false
+
     // Generate tweet content
     const emoji = analysis.overallScore >= 70 ? "🟢" : analysis.overallScore >= 50 ? "🟡" : "🔴"
-    const bundleStatus = analysis.verification?.bundleDetection?.detected ? "⚠️ Bundles Detected" : "✅ Clean"
-    const sniperStatus = analysis.verification?.sniperActivity?.detected ? "🎯 Snipers Active" : "✅ No Snipers"
+    const bundleStatus = bundleDetected ? "⚠️ BUNDLED!" : "✅ Clean"
+    const sniperStatus = sniperDetected ? "🎯 Snipers Active" : "✅ No Snipers"
 
     const liquidity = ((analysis.tokenInfo?.liquidity || 0) / 1000).toFixed(0)
 
-    const tweetContent = `${emoji} Top #${rank}: $${symbol} 
+    const tweetContent = `${emoji} $${symbol} 
 
 📊 Ward AI Analysis:
 • Risk Score: ${analysis.overallScore}/100
@@ -70,8 +73,8 @@ export async function POST(request: Request) {
       },
       analysis: {
         riskScore: analysis.overallScore,
-        bundleDetected: analysis.verification?.bundleDetection?.detected || false,
-        sniperDetected: analysis.verification?.sniperActivity?.detected || false,
+        bundleDetected: bundleDetected,
+        sniperDetected: sniperDetected,
       },
       posted: false,
     }

@@ -91,30 +91,30 @@
 
 ### Installation
 
-\`\`\`bash
+```bash
 # Clone the repository
 git clone https://github.com/your-org/ward-ai-foundation.git
 cd ward-ai-foundation
 
 # Install dependencies (automatically handled by Next.js)
 # No package.json setup required in development
-\`\`\`
+```
 
 ### Environment Variables
 
 Create environment variables in your Vercel project:
 
-\`\`\`bash
+```bash
 # Optional: Bitquery API for enhanced analytics
 BITQUERY_API_KEY=your_bitquery_key
 
 # Optional: Apify for social scraping (currently disabled)
 APIFY_API_TOKEN=your_apify_token
-\`\`\`
+```
 
 ### Run Development Server
 
-\`\`\`bash
+```bash
 # The project runs in Next.js runtime
 # Simply start the development server
 npm run dev
@@ -122,7 +122,7 @@ npm run dev
 bun dev
 # or
 yarn dev
-\`\`\`
+```
 
 Open [http://localhost:3000](http://localhost:3000) to see the application.
 
@@ -132,9 +132,9 @@ Open [http://localhost:3000](http://localhost:3000) to see the application.
 
 Navigate to the **Analyze** page and enter any Solana token contract address:
 
-\`\`\`
+```
 Example: 7Y2TPeq3hqw21LRTCi4wBWoivDngCpNNJsN1hzhZpump
-\`\`\`
+```
 
 The system will:
 - Fetch real-time trading data from DexScreener
@@ -188,7 +188,7 @@ Performs comprehensive AI-powered token analysis.
 - `address` (string) - Solana token contract address
 
 **Response:**
-\`\`\`typescript
+```typescript
 {
   riskScore: number;        // 0-100 (higher = more risky)
   riskLevel: string;        // "low" | "medium" | "high" | "critical"
@@ -207,7 +207,7 @@ Performs comprehensive AI-powered token analysis.
     age: number;
   };
 }
-\`\`\`
+```
 
 ### `/api/wallet-holdings`
 
@@ -217,7 +217,7 @@ Fetches real-time portfolio holdings for a Solana wallet.
 - `address` (string) - Solana wallet address
 
 **Response:**
-\`\`\`typescript
+```typescript
 {
   holdings: Array<{
     mint: string;
@@ -232,7 +232,7 @@ Fetches real-time portfolio holdings for a Solana wallet.
   totalValue: number;
   averageRisk: number;
 }
-\`\`\`
+```
 
 ### `/api/ml-risk-analysis`
 
@@ -242,7 +242,7 @@ Generates ML-based risk analysis with sentiment tracking.
 - `address` (string) - Token contract address
 
 **Response:**
-\`\`\`typescript
+```typescript
 {
   overallRisk: number;
   sentiment: {
@@ -262,7 +262,7 @@ Generates ML-based risk analysis with sentiment tracking.
     balance: number;
   }>;
 }
-\`\`\`
+```
 
 ### `/api/contract-audit`
 
@@ -272,7 +272,7 @@ Performs automated smart contract security audit.
 - `address` (string) - Token contract address
 
 **Response:**
-\`\`\`typescript
+```typescript
 {
   overallRisk: number;
   findings: Array<{
@@ -289,7 +289,7 @@ Performs automated smart contract security audit.
     honeypotRisk: boolean;
   };
 }
-\`\`\`
+```
 
 ### `/api/live-alerts`
 
@@ -299,7 +299,7 @@ Streams real-time trading alerts for monitored tokens.
 - `address` (string) - Token contract address
 
 **Response:**
-\`\`\`typescript
+```typescript
 {
   alerts: Array<{
     id: string;
@@ -310,7 +310,7 @@ Streams real-time trading alerts for monitored tokens.
     data: object;
   }>;
 }
-\`\`\`
+```
 
 ### `/api/social-sentiment`
 
@@ -320,7 +320,7 @@ Analyzes social sentiment using on-chain trading patterns.
 - `address` (string) - Token contract address
 
 **Response:**
-\`\`\`typescript
+```typescript
 {
   sentiment: {
     score: number;          // -100 to +100
@@ -336,11 +336,11 @@ Analyzes social sentiment using on-chain trading patterns.
     timestamp: string;
   }>;
 }
-\`\`\`
+```
 
 ## Project Structure
 
-\`\`\`
+```
 ward-ai-foundation/
 ├── app/
 │   ├── analytics/          # Portfolio protection, ML risk analysis
@@ -364,7 +364,7 @@ ward-ai-foundation/
 ├── lib/
 │   └── utils.ts            # Utility functions
 └── public/                 # Static assets
-\`\`\`
+```
 
 ## Key Features Explained
 
@@ -410,24 +410,24 @@ WARD handles Solana RPC failures gracefully:
 
 ### Testing
 
-\`\`\`bash
+```bash
 # Run the development server
 npm run dev
 
 # Open http://localhost:3000
 # Test with known token addresses
-\`\`\`
+```
 
 ### Deployment
 
 The project is designed for deployment on Vercel:
 
-\`\`\`bash
+```bash
 # Deploy to Vercel
 vercel
 
 # Or connect your GitHub repo to Vercel for auto-deployments
-\`\`\`
+```
 
 ## Future Roadmap
 
