@@ -443,6 +443,7 @@ async function detectBundles(tokenAddress: string, pair: any): Promise<Verificat
             Trade {
               Side {
                 Type
+                Amount
               }
             }
           }
@@ -506,15 +507,42 @@ async function detectBundles(tokenAddress: string, pair: any): Promise<Verificat
       tradesBySlot.get(slot)!.push(trade)
     })
 
-    const suspiciousBundles: string[] = []
+    const suspiciousBundles: Array<{
+      wallets: Array<{ address: string; amount: number; percentage: number }>
+      totalAmount: number
+      totalPercentage: number
+      timestamp: string
+      confidence: number
+    }> = []
     let bundleCount = 0
 
     tradesBySlot.forEach((slotTrades, slot) => {
-      const uniqueBuyers = new Set(slotTrades.map((t: any) => t.Transaction.Signer))
+      const uniqueBuyers = new Map<string, number>()
+
+      slotTrades.forEach((trade: any) => {
+        const signer = trade.Transaction.Signer
+        const amount = trade.Trade.Side.Amount || 0
+        uniqueBuyers.set(signer, (uniqueBuyers.get(signer) || 0) + amount)
+      })
 
       if (uniqueBuyers.size >= 3) {
         bundleCount++
-        suspiciousBundles.push(`Slot ${slot}: ${uniqueBuyers.size} wallets bought together`)
+
+        const totalAmount = Array.from(uniqueBuyers.values()).reduce((sum, amt) => sum + amt, 0)
+        const wallets = Array.from(uniqueBuyers.entries()).map(([address, amount]) => ({
+          address,
+          amount,
+          percentage: totalAmount > 0 ? (amount / totalAmount) * 100 : 0,
+        }))
+
+        suspiciousBundles.push({
+          wallets,
+          totalAmount,
+          totalPercentage: 100,
+          timestamp: slotTrades[0]?.Block?.Time || new Date().toISOString(),
+          confidence: Math.min(95, 60 + uniqueBuyers.size * 10),
+        })
+
         console.log("[v0] Bundle detected at slot", slot, "with", uniqueBuyers.size, "wallets")
       }
     })
